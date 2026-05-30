@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Timeline Editor | Birthday Site</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, system-ui, sans-serif;
+      background: radial-gradient(circle at top, #4f2b8c 0%, #180426 55%, #0c0310 100%);
+      color: #f7f2ff;
+      display: flex;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .editor-page {
+      width: min(1100px, 100%);
+      padding: 28px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 32px;
+      box-shadow: 0 28px 80px rgba(0,0,0,0.28);
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(2rem, 4vw, 3rem);
+      letter-spacing: 0.02em;
+    }
+
+    .intro {
+      margin: 0 0 28px;
+      line-height: 1.7;
+      max-width: 780px;
+      color: rgba(247,242,255,0.86);
+    }
+
+    .editor-panel {
+      margin-bottom: 28px;
+      padding: 24px;
+      border-radius: 28px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    .editor-panel h2 {
+      margin-top: 0;
+      margin-bottom: 18px;
+      font-size: 1.6rem;
+    }
+
+    .field {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .field span {
+      font-size: 0.95rem;
+      color: rgba(247,242,255,0.78);
+    }
+
+    .field input[type="text"],
+    .field textarea,
+    .field input[type="file"] {
+      width: 100%;
+      padding: 14px 16px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(255,255,255,0.08);
+      color: #f7f2ff;
+      font-size: 1rem;
+    }
+
+    .field textarea {
+      resize: vertical;
+      min-height: 110px;
+    }
+
+    .preview-wrapper {
+      margin-bottom: 18px;
+      display: grid;
+      place-items: center;
+      min-height: 140px;
+    }
+
+    .preview-image {
+      max-width: 100%;
+      max-height: 300px;
+      border-radius: 22px;
+      border: 1px solid rgba(255,255,255,0.16);
+      box-shadow: 0 18px 40px rgba(0,0,0,0.12);
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .entry {
+      margin-bottom: 24px;
+      padding: 18px;
+      border-radius: 24px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    .entry h3 {
+      margin-top: 0;
+      margin-bottom: 14px;
+    }
+
+    .save-button,
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px 22px;
+      border-radius: 999px;
+      border: none;
+      background: linear-gradient(135deg, #ff8ec0, #6e64ff);
+      color: #fff;
+      text-decoration: none;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: transform .2s ease, filter .2s ease;
+    }
+
+    .save-button:hover,
+    .back-link:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.05);
+    }
+
+    .save-message {
+      margin-top: 16px;
+      color: #d4e5ff;
+    }
+  </style>
+</head>
+<body>
+  <main class="editor-page">
+    <h1>Timeline Editor</h1>
+    <p class="intro">Pick your hero image and timeline cards here. After saving, return to the main page to see the timeline update automatically.</p>
+
+    <section class="editor-panel">
+      <h2>Hero image</h2>
+      <label class="field">
+        <span>Choose hero image</span>
+        <input id="heroImageInput" type="file" accept="image/*" />
+      </label>
+      <div class="preview-wrapper">
+        <img id="heroImagePreview" class="preview-image hidden" alt="Hero image preview" />
+      </div>
+    </section>
+
+    <section class="editor-panel">
+      <h2>Timeline entries</h2>
+      <div id="entryList"></div>
+      <button id="saveButton" class="save-button" type="button">Save timeline data</button>
+      <p id="saveMessage" class="save-message"></p>
+      <a class="back-link" href="index.html">Back to main page</a>
+    </section>
+  </main>
+
+  <script>
+    const DB_NAME = 'birthdayTimelineDB';
+    const DB_STORE = 'images';
+    const TIMELINE_ENTRY_COUNT = 10;
+    const DEFAULT_ENTRY_TITLES = [
+      'Early memories',
+      'Fun times',
+      'Happy moments',
+      'Favorite moments',
+      'Unforgettable day',
+      'Best laughs',
+      'School stories',
+      'Crazy adventures',
+      'Late night talks',
+      'Friendship forever'
+    ];
+
+    const heroImageInput = document.getElementById('heroImageInput');
+    const heroImagePreview = document.getElementById('heroImagePreview');
+    const entryList = document.getElementById('entryList');
+    const saveButton = document.getElementById('saveButton');
+    const saveMessage = document.getElementById('saveMessage');
+
+    const entryImageData = Array(TIMELINE_ENTRY_COUNT).fill('');
+    const entryImageFiles = Array(TIMELINE_ENTRY_COUNT).fill(null);
+    const entryImageKeys = Array(TIMELINE_ENTRY_COUNT).fill('');
+    const entryImagePreviews = [];
+    const entryTitles = [];
+    const entryTexts = [];
+    let heroImageData = '';
+    let heroImageKey = '';
+    let heroImageFile = null;
+
+    function openDatabase() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(DB_STORE)) {
+            db.createObjectStore(DB_STORE, { keyPath: 'id' });
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+        request.onblocked = () => reject(new Error('IndexedDB open blocked'));
+      });
+    }
+
+    function saveImageBlob(db, key, blob) {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(DB_STORE, 'readwrite');
+        const store = transaction.objectStore(DB_STORE);
+        const request = store.put({ id: key, blob });
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    function getImageBlob(db, key) {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(DB_STORE, 'readonly');
+        const store = transaction.objectStore(DB_STORE);
+        const request = store.get(key);
+        request.onsuccess = () => resolve(request.result?.blob || null);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function loadImagePreviewFromKey(key, imageElement) {
+      if (!key) return;
+      try {
+        const db = await openDatabase();
+        const blob = await getImageBlob(db, key);
+        if (blob) {
+          imageElement.src = URL.createObjectURL(blob);
+          imageElement.classList.remove('hidden');
+        }
+      } catch (error) {
+        console.warn('Unable to load image from IndexedDB', error);
+      }
+    }
+
+    function initEditor() {
+      createEditorEntries();
+      loadStoredData();
+    }
+
+    function createEditorEntries() {
+      for (let i = 1; i <= TIMELINE_ENTRY_COUNT; i += 1) {
+        const entry = document.createElement('div');
+        entry.className = 'entry';
+        entry.innerHTML = `
+          <h3>Entry ${i}</h3>
+          <label class="field">
+            <span>Image</span>
+            <input data-index="${i}" class="entry-image-input" type="file" accept="image/*" />
+          </label>
+          <div class="preview-wrapper">
+            <img id="entryImagePreview${i}" class="preview-image hidden" alt="Timeline image ${i} preview" />
+          </div>
+          <label class="field">
+            <span>Title</span>
+            <input id="entryTitle${i}" type="text" placeholder="${DEFAULT_ENTRY_TITLES[i - 1]}" />
+          </label>
+          <label class="field">
+            <span>Caption</span>
+            <textarea id="entryText${i}" placeholder="Add a caption for this memory."></textarea>
+          </label>
+        `;
+
+        entryList.appendChild(entry);
+
+        const input = entry.querySelector('.entry-image-input');
+        const preview = entry.querySelector('.preview-image');
+        const titleInput = entry.querySelector('input[type="text"]');
+        const textInput = entry.querySelector('textarea');
+
+        entryImagePreviews.push(preview);
+        entryTitles.push(titleInput);
+        entryTexts.push(textInput);
+
+        input.addEventListener('change', async event => {
+          const file = event.target.files[0];
+          const index = Number(event.target.dataset.index) - 1;
+          entryImageFiles[index] = file || null;
+          entryImageKeys[index] = '';
+          if (!file) {
+            entryImagePreviews[index].classList.add('hidden');
+            return;
+          }
+          const dataUrl = await readFileAsDataURL(file);
+          entryImagePreviews[index].src = dataUrl;
+          entryImagePreviews[index].classList.remove('hidden');
+        });
+      }
+    }
+
+    function dataURLToBlob(dataUrl) {
+      const [header, base64] = dataUrl.split(',');
+      const mime = header.match(/:(.*?);/)[1];
+      const binary = atob(base64);
+      const array = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        array[i] = binary.charCodeAt(i);
+      }
+      return new Blob([array], { type: mime });
+    }
+
+    async function loadStoredData() {
+      const stored = localStorage.getItem('birthdayTimelineData');
+      if (!stored) {
+        return;
+      }
+
+      let data;
+      try {
+        data = JSON.parse(stored);
+      } catch (error) {
+        return;
+      }
+
+      if (data.heroImageKey) {
+        heroImageKey = data.heroImageKey;
+        await loadImagePreviewFromKey(heroImageKey, heroImagePreview);
+      } else if (data.heroImage) {
+        heroImageData = data.heroImage;
+        heroImagePreview.src = heroImageData;
+        heroImagePreview.classList.remove('hidden');
+      }
+
+      const entries = data.entries || [];
+      await Promise.all(entries.map(async (entry, index) => {
+        if (!entry || index >= TIMELINE_ENTRY_COUNT) return;
+        entryTitles[index].value = entry.title || '';
+        entryTexts[index].value = entry.text || '';
+        entryImageKeys[index] = entry.imageKey || '';
+        if (entry.imageKey) {
+          await loadImagePreviewFromKey(entry.imageKey, entryImagePreviews[index]);
+        } else if (entry.imageData) {
+          entryImageData[index] = entry.imageData;
+          entryImagePreviews[index].src = entry.imageData;
+          entryImagePreviews[index].classList.remove('hidden');
+        }
+      }));
+    }
+
+    function readFileAsDataURL(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    heroImageInput.addEventListener('change', async event => {
+      const file = event.target.files[0];
+      heroImageFile = file || null;
+      if (!file) {
+        heroImagePreview.classList.add('hidden');
+        heroImageKey = '';
+        return;
+      }
+      const dataUrl = await readFileAsDataURL(file);
+      heroImagePreview.src = dataUrl;
+      heroImagePreview.classList.remove('hidden');
+      heroImageKey = '';
+    });
+
+    saveButton.addEventListener('click', async () => {
+      const entries = entryTitles.map((title, index) => ({
+        title: title.value.trim(),
+        text: entryTexts[index].value.trim(),
+        imageKey: entryImageKeys[index] || ''
+      }));
+
+      try {
+        const db = await openDatabase();
+
+        if (heroImageFile) {
+          await saveImageBlob(db, 'heroImage', heroImageFile);
+          heroImageKey = 'heroImage';
+        } else if (!heroImageKey && heroImageData) {
+          await saveImageBlob(db, 'heroImage', dataURLToBlob(heroImageData));
+          heroImageKey = 'heroImage';
+        }
+
+        await Promise.all(entries.map(async (entry, index) => {
+          if (entryImageFiles[index]) {
+            const key = `entryImage${index + 1}`;
+            await saveImageBlob(db, key, entryImageFiles[index]);
+            entry.imageKey = key;
+          } else if (entryImageKeys[index]) {
+            entry.imageKey = entryImageKeys[index];
+          } else if (entryImageData[index]) {
+            const key = `entryImage${index + 1}`;
+            await saveImageBlob(db, key, dataURLToBlob(entryImageData[index]));
+            entry.imageKey = key;
+          }
+        }));
+
+        const data = {
+          heroImageKey,
+          entries
+        };
+
+        localStorage.setItem('birthdayTimelineData', JSON.stringify(data));
+        saveMessage.textContent = 'Timeline data saved. Go back to the main page to see it.';
+      } catch (error) {
+        saveMessage.textContent = 'Save failed. Try smaller images or refresh the page.';
+        console.error('Save failed', error);
+      }
+
+      setTimeout(() => {
+        saveMessage.textContent = '';
+      }, 5000);
+    });
+
+    document.addEventListener('DOMContentLoaded', initEditor);
+  </script>
+</body>
+</html>
